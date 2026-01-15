@@ -6,6 +6,7 @@ from rapidfuzz import fuzz
 
 
 _latex_cmd_re = re.compile(r"\\[a-zA-Z]+\s*|\{|\}")
+_latex_math_re = re.compile(r"\$[^$]*\$")
 _whitespace_re = re.compile(r"\s+")
 _punct_tbl = str.maketrans("", "", string.punctuation)
 
@@ -13,7 +14,8 @@ _punct_tbl = str.maketrans("", "", string.punctuation)
 def normalize_title(title: str) -> str:
     if not title:
         return ""
-    t = _latex_cmd_re.sub(" ", title)
+    t = _latex_math_re.sub(" ", title)
+    t = _latex_cmd_re.sub(" ", t)
     t = t.translate(_punct_tbl)
     t = _whitespace_re.sub(" ", t).strip().lower()
     return t
@@ -58,4 +60,3 @@ def contains_cjk(text: str) -> bool:
     if not text:
         return False
     return any("\u4e00" <= ch <= "\u9fff" for ch in text)
-

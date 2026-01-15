@@ -5,7 +5,7 @@ def confidence_from_resolved(title_score: int = None, resolved_from_doi: bool = 
         score = 1.0
     if title_score is not None:
         score = max(score, title_score / 100.0)
-    if not author_match:
+    if not author_match and not resolved_from_doi:
         score = min(score, 0.7)
     return min(1.0, max(score, 0.0))
 
@@ -36,4 +36,3 @@ def classify_confidence(title_score: int, doi_match: bool, author_match: bool) -
     if score >= 0.8:
         return ConfidenceResult(score, "medium", "title>=0.8")
     return ConfidenceResult(score, "low", "title<0.8")
-

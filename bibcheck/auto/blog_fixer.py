@@ -21,10 +21,10 @@ def plan_blog_fix(entry: dict, session, cache, user_agent: str, min_conf: float,
     def add_patch(field, new, source="web", conf_override=None):
         c = conf_override if conf_override is not None else conf
         patch = {"citekey": entry["ID"], "field": field, "old": entry.get(field), "new": new, "confidence": c, "source": source}
-        suggested.append(patch)
+        suggested.append({**patch, "applied": False})
         if c >= min_conf:
             entry[field] = new
-            applied.append(patch)
+            applied.append({**patch, "applied": True})
 
     if resolved.get("canonical_url") and resolved.get("canonical_url") != entry.get("url"):
         add_patch("url", resolved["canonical_url"], source="web:canonical", conf_override=0.9)
@@ -58,4 +58,3 @@ def plan_blog_fix(entry: dict, session, cache, user_agent: str, min_conf: float,
         except Exception:
             pass
     return suggested, applied
-
