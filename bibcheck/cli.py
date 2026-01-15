@@ -38,6 +38,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="逗号分隔的在线数据源，默认全开",
     )
     parser.add_argument(
+        "--enable-arxiv",
+        action="store_true",
+        default=True,
+        help="启用 arXiv API（默认开启）",
+    )
+    parser.add_argument(
+        "--disable-arxiv",
+        action="store_false",
+        dest="enable_arxiv",
+        help="禁用 arXiv API",
+    )
+    parser.add_argument(
+        "--enable-dblp",
+        action="store_true",
+        help="启用 DBLP（仅 CS 条目），默认关闭",
+    )
+    parser.add_argument(
+        "--enable-citation-cff",
+        action="store_true",
+        default=True,
+        help="启用 GitHub CITATION.cff（默认开启）",
+    )
+    parser.add_argument(
+        "--disable-citation-cff",
+        action="store_false",
+        dest="enable_citation_cff",
+        help="禁用 GitHub CITATION.cff",
+    )
+    parser.add_argument(
+        "--high-conf",
+        type=float,
+        default=0.8,
+        help="高置信门控阈值，默认 0.8",
+    )
+    parser.add_argument(
+        "--mid-conf",
+        type=float,
+        default=0.6,
+        help="中置信门控阈值，默认 0.6",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="输出更详细的调试信息",
@@ -127,6 +168,11 @@ def run_check(args, planner: FixPlanner = None) -> int:
             sources=parse_sources(args.sources),
             verbose=args.verbose,
             user_agent=args.user_agent,
+            enable_arxiv=args.enable_arxiv,
+            enable_dblp=args.enable_dblp,
+            enable_citation_cff=args.enable_citation_cff,
+            high_conf=args.high_conf,
+            mid_conf=args.mid_conf,
         )
     )
 
@@ -218,4 +264,3 @@ def run_autofix_cli(args) -> int:
         user_agent=args.user_agent,
     )
     return 0
-

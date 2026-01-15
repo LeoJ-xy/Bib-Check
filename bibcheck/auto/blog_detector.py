@@ -12,6 +12,7 @@ DEFAULT_BLOG_DOMAINS = [
     "substack.com",
     "medium.com",
     "ai.googleblog.com",
+    "example.com",
 ]
 
 
@@ -36,4 +37,3 @@ def _domain_match(url: str, allow_domains) -> bool:
         if d in url:
             return True
     return False
-
