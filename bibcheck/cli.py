@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import shutil
+import time
 from typing import List, Optional, Tuple, Dict
 
 from .parser import load_bib_entries
@@ -9,6 +10,36 @@ from .report import ReportBuilder, write_csv_report, write_json_report, print_su
 from .validators_static import run_static_validations
 from .validators_online import OnlineValidatorConfig, OnlineValidator
 from .fixer import FixPlanner, FixConfig, FixApplier, ApplyConfig, write_changelog, write_fix_summary
+
+
+class ProgressBar:
+    def __init__(self, total: int, stream=sys.stderr, enabled: Optional[bool] = None) -> None:
+        self.total = total
+        self.stream = stream
+        self.start_time = time.time()
+        if enabled is None:
+            enabled = stream.isatty()
+        self.enabled = enabled and total > 0
+
+    def update(self, current: int) -> None:
+        if not self.enabled:
+            return
+        percent = current / self.total
+        elapsed = time.time() - self.start_time
+        rate = current / elapsed if elapsed > 0 else 0.0
+        width = shutil.get_terminal_size((80, 20)).columns
+        bar_width = max(10, min(40, width - 30))
+        filled = int(bar_width * percent)
+        bar = "=" * filled + "-" * (bar_width - filled)
+        message = f"\r进度 [{bar}] {current}/{self.total} ({percent:.0%}) {rate:.1f}/s"
+        self.stream.write(message)
+        self.stream.flush()
+
+    def finish(self) -> None:
+        if not self.enabled:
+            return
+        self.stream.write("\n")
+        self.stream.flush()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -177,7 +208,8 @@ def run_check(args, planner: FixPlanner = None) -> int:
     )
 
     plans = {}
-    for entry in entries:
+    progress = ProgressBar(len(entries), enabled=not args.verbose)
+    for index, entry in enumerate(entries, start=1):
         issues = static_results.get(entry["ID"], [])
         online_result = online_validator.validate_entry(entry)
         fix_preview = None
@@ -188,6 +220,8 @@ def run_check(args, planner: FixPlanner = None) -> int:
         entry_status = report_builder.collect_entry(entry, issues, online_result, fix_plan_preview=fix_preview)
         if args.verbose:
             print(f"[{entry['ID']}] status={entry_status} issues={len(issues)}")
+        progress.update(index)
+    progress.finish()
 
     report_data = report_builder.build()
 
