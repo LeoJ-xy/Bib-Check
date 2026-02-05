@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import shutil
+import time
 from typing import List, Optional, Tuple, Dict
 
 from .parser import load_bib_entries
@@ -9,6 +10,46 @@ from .report import ReportBuilder, write_csv_report, write_json_report, print_su
 from .validators_static import run_static_validations
 from .validators_online import OnlineValidatorConfig, OnlineValidator
 from .fixer import FixPlanner, FixConfig, FixApplier, ApplyConfig, write_changelog, write_fix_summary
+
+
+class ProgressBar:
+    def __init__(
+        self,
+        total: int,
+        stream=sys.stderr,
+        enabled: Optional[bool] = None,
+    ) -> None:
+        self.total = max(0, total)
+        self.stream = stream
+        self.start_time = time.time()
+        if enabled is None:
+            enabled = stream.isatty()
+        self.enabled = enabled and self.total > 0
+
+    def update(self, current: int) -> None:
+        if not self.enabled:
+            return
+        current = min(current, self.total)
+        percent = current / self.total if self.total else 1.0
+        elapsed = time.time() - self.start_time
+        rate = current / elapsed if elapsed > 0 else 0.0
+        remaining = (self.total - current) / rate if rate > 0 else 0.0
+        width = shutil.get_terminal_size((80, 20)).columns
+        bar_width = max(10, min(40, width - 40))
+        filled = int(bar_width * percent)
+        bar = "=" * filled + "-" * (bar_width - filled)
+        message = (
+            f"\r进度 [{bar}] {current}/{self.total} "
+            f"({percent:.0%}) {rate:.1f}/s ETA {remaining:.1f}s"
+        )
+        self.stream.write(message)
+        self.stream.flush()
+
+    def finish(self) -> None:
+        if not self.enabled:
+            return
+        self.stream.write("\n")
+        self.stream.flush()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--verbose",
         action="store_true",
         help="输出更详细的调试信息",
+    )
+    parser.add_argument(
+        "--progress",
+        choices=["auto", "always", "never"],
+        default="auto",
+        help="进度条显示策略：auto（默认，仅 TTY 且非 verbose 时显示）、always、never",
     )
     parser.add_argument(
         "--user-agent",
@@ -177,7 +224,14 @@ def run_check(args, planner: FixPlanner = None) -> int:
     )
 
     plans = {}
-    for entry in entries:
+    if args.progress == "never":
+        progress_enabled = False
+    elif args.progress == "always":
+        progress_enabled = True
+    else:
+        progress_enabled = None if not args.verbose else False
+    progress = ProgressBar(len(entries), enabled=progress_enabled)
+    for index, entry in enumerate(entries, start=1):
         issues = static_results.get(entry["ID"], [])
         online_result = online_validator.validate_entry(entry)
         fix_preview = None
@@ -188,6 +242,8 @@ def run_check(args, planner: FixPlanner = None) -> int:
         entry_status = report_builder.collect_entry(entry, issues, online_result, fix_plan_preview=fix_preview)
         if args.verbose:
             print(f"[{entry['ID']}] status={entry_status} issues={len(issues)}")
+        progress.update(index)
+    progress.finish()
 
     report_data = report_builder.build()
 
