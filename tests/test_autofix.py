@@ -1,4 +1,5 @@
-import os
+import requests
+import responses
 
 from bibcheck.auto.autofix import _write_bib
 
@@ -37,3 +38,33 @@ def test_conf_threshold_applied(monkeypatch, tmp_path):
     text = out_bib.read_text(encoding="utf-8")
     assert "NEW" not in text
 
+
+@responses.activate
+def test_autofix_arxiv_resolver_parses_metadata():
+    from bibcheck.auto.cache import HTTPCache
+    from bibcheck.auto.resolvers.arxiv_resolver import resolve_arxiv
+
+    responses.add(
+        responses.GET,
+        "https://export.arxiv.org/api/query",
+        body=(
+            "<?xml version='1.0' encoding='UTF-8'?>"
+            "<feed xmlns='http://www.w3.org/2005/Atom' xmlns:arxiv='http://arxiv.org/schemas/atom'>"
+            "<entry>"
+            "<id>http://arxiv.org/abs/1234.56789v2</id>"
+            "<title>Test Paper</title>"
+            "<author><name>Alice Smith</name></author>"
+            "<published>2020-01-01T00:00:00Z</published>"
+            "</entry>"
+            "</feed>"
+        ),
+        status=200,
+        match=[responses.matchers.query_param_matcher({"id_list": "1234.56789"})],
+    )
+    session = requests.Session()
+    session.headers["User-Agent"] = "bibcheck-test"
+    resolved = resolve_arxiv("https://arxiv.org/abs/1234.56789", session, HTTPCache(path=":memory:"), "bibcheck-test")
+    assert resolved["title"] == "Test Paper"
+    assert resolved["authors"] == ["Alice Smith"]
+    assert resolved["year"] == "2020"
+    assert resolved["doi"] == "10.48550/arxiv.1234.56789"

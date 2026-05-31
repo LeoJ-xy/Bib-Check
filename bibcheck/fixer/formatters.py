@@ -3,7 +3,7 @@ from typing import List, Optional
 
 
 def normalize_pages(pages: Optional[str], fallback: Optional[str] = None) -> Optional[str]:
-    """规范化 pages：去掉前缀，统一双短横。"""
+    """Normalize pages by removing prefixes and using BibTeX double-hyphen ranges."""
     if pages is None:
         return fallback
     p = pages.strip()
@@ -16,7 +16,7 @@ def normalize_pages(pages: Optional[str], fallback: Optional[str] = None) -> Opt
         return f"{start}--{end}"
     if re.fullmatch(r"\d+", p):
         return p
-    # 若格式异常且提供 fallback，则用 fallback
+    # If the format is invalid and a fallback is available, use the fallback.
     if fallback:
         return normalize_pages(fallback)
     return p
@@ -31,7 +31,7 @@ def normalize_doi_value(doi: Optional[str]) -> Optional[str]:
 
 
 def format_authors_list(authors: List[str]) -> str:
-    """将作者列表格式化为 BibTeX author 字段的 'Last, First and ...'。"""
+    """Format an author list as a BibTeX author field: 'Last, First and ...'."""
     formatted = []
     for a in authors:
         name = a.strip()
@@ -54,8 +54,8 @@ from ..normalize import normalize_doi
 
 def format_authors_bibtex(authors: List[str]) -> str:
     """
-    把 ['Kaiming He','Xiangyu Zhang'] 转换为 'He, Kaiming and Zhang, Xiangyu'
-    若已经是 'Last, First' 格式则直接保留。
+    Convert ['Kaiming He', 'Xiangyu Zhang'] to 'He, Kaiming and Zhang, Xiangyu'.
+    Preserve names that are already in 'Last, First' format.
     """
     formatted = []
     for a in authors:
@@ -89,4 +89,3 @@ def normalize_doi_str(doi: Optional[str]) -> Optional[str]:
     if not doi:
         return None
     return normalize_doi(doi)
-

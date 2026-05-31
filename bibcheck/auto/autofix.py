@@ -27,7 +27,7 @@ def run_autofix(
     min_conf: float = 0.85,
     scope: str = "high",
     allow_network: bool = True,
-    user_agent: str = "bibcheck/auto-fix",
+    user_agent: str = "bibcheck/1.5 autofix",
 ):
     entries, parse_issues = load_bib_entries(bibfile, max_entries=None)
     report_builder = ReportBuilder()
@@ -77,7 +77,7 @@ def _plan_and_apply(entry, online_result, session, cache, min_conf, scope, allow
     if scope == "all":
         target_fields += ["booktitle", "volume", "number", "pages"]
 
-    # 额外来源：直接解析 doi/arxiv/模糊检索
+    # Extra sources: resolve DOI/arXiv directly, then fall back to fuzzy search.
     if allow_network and not resolved:
         if entry.get("doi"):
             resolved = resolve_doi(entry.get("doi"), session, cache, user_agent)
@@ -113,7 +113,7 @@ def _plan_and_apply(entry, online_result, session, cache, min_conf, scope, allow
         }
         suggested.append(patch)
         if conf >= min_conf:
-            # 移动 arXiv journal -> howpublished
+            # Move arXiv journal values to howpublished.
             if f == "journal" and "arxiv" in str(new_val).lower():
                 entry.pop("journal", None)
                 entry.pop("booktitle", None)
@@ -150,4 +150,3 @@ def _write_bib(entries, path: str):
     writer.order_entries_by = None
     with open(path, "w", encoding="utf-8") as f:
         f.write(writer.write(db))
-

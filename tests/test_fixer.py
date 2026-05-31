@@ -48,10 +48,9 @@ def test_aggressive_threshold():
     plan = planner.build_plan(entry, [], {"checked": True, "candidate_matches": [candidate]})
     applier = FixApplier(ApplyConfig(aggressive=False))
     _, applied, suggested = applier.apply([entry], {"k4": plan})
-    assert not applied  # 未应用
+    assert not applied  # Not applied.
 
     applier_aggr = FixApplier(ApplyConfig(aggressive=True))
     _, applied2, _ = applier_aggr.apply([entry], {"k4": plan})
     assert any(c["field"] == "doi" and c["applied"] for c in applied2)
-
 

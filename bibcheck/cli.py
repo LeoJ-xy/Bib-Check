@@ -39,7 +39,7 @@ class ProgressBar:
         filled = int(bar_width * percent)
         bar = "=" * filled + "-" * (bar_width - filled)
         message = (
-            f"\r进度 [{bar}] {current}/{self.total} "
+            f"\rProgress [{bar}] {current}/{self.total} "
             f"({percent:.0%}) {rate:.1f}/s ETA {remaining:.1f}s"
         )
         self.stream.write(message)
@@ -54,127 +54,127 @@ class ProgressBar:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="BibTeX 引用真实性/一致性校验器（默认联网）"
+        description="BibTeX reference authenticity and consistency checker (online by default)"
     )
-    parser.add_argument("bibfile", help="待校验的 .bib 文件路径")
+    parser.add_argument("bibfile", help="Path to the .bib file to check")
     parser.add_argument(
         "--offline",
         action="store_true",
-        help="显式离线模式（不访问在线数据源）",
+        help="Run in explicit offline mode without contacting online data sources",
     )
     parser.add_argument(
         "--outdir",
         default="out",
-        help="报告输出目录，默认 out",
+        help="Report output directory; defaults to out",
     )
     parser.add_argument(
         "--max-entries",
         type=int,
         default=None,
-        help="最多检查前 N 条，便于快速预览",
+        help="Check at most the first N entries for quick previews",
     )
     parser.add_argument(
         "--sources",
         default="crossref,openalex,s2",
-        help="逗号分隔的在线数据源，默认全开",
+        help="Comma-separated online sources for scholarly lookup",
     )
     parser.add_argument(
         "--enable-arxiv",
         action="store_true",
         default=True,
-        help="启用 arXiv API（默认开启）",
+        help="Enable the arXiv API (enabled by default)",
     )
     parser.add_argument(
         "--disable-arxiv",
         action="store_false",
         dest="enable_arxiv",
-        help="禁用 arXiv API",
+        help="Disable the arXiv API",
     )
     parser.add_argument(
         "--enable-dblp",
         action="store_true",
-        help="启用 DBLP（仅 CS 条目），默认关闭",
+        help="Enable DBLP for computer science entries (disabled by default)",
     )
     parser.add_argument(
         "--enable-citation-cff",
         action="store_true",
         default=True,
-        help="启用 GitHub CITATION.cff（默认开启）",
+        help="Enable GitHub CITATION.cff lookup (enabled by default)",
     )
     parser.add_argument(
         "--disable-citation-cff",
         action="store_false",
         dest="enable_citation_cff",
-        help="禁用 GitHub CITATION.cff",
+        help="Disable GitHub CITATION.cff lookup",
     )
     parser.add_argument(
         "--high-conf",
         type=float,
         default=0.8,
-        help="高置信门控阈值，默认 0.8",
+        help="High-confidence gating threshold; defaults to 0.8",
     )
     parser.add_argument(
         "--mid-conf",
         type=float,
         default=0.6,
-        help="中置信门控阈值，默认 0.6",
+        help="Medium-confidence gating threshold; defaults to 0.6",
     )
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="输出更详细的调试信息",
+        help="Print more detailed diagnostic output",
     )
     parser.add_argument(
         "--progress",
         choices=["auto", "always", "never"],
         default="auto",
-        help="进度条显示策略：auto（默认，仅 TTY 且非 verbose 时显示）、always、never",
+        help="Progress display mode: auto (TTY only and not verbose), always, or never",
     )
     parser.add_argument(
         "--user-agent",
-        default="bibcheck/0.1 (+https://example.com/contact)",
-        help="HTTP User-Agent，建议带联系方式",
+        default="bibcheck/1.5",
+        help="HTTP User-Agent; include contact information when appropriate",
     )
-    # auto-fix online (new, 仅新增不与已有重复)
-    parser.add_argument("--autofix", action="store_true", help="启用自动联网矫正（生成 fixed bib 与 change 记录）")
-    parser.add_argument("--no-network", action="store_true", help="禁止联网（autofix 时跳过在线解析）")
-    parser.add_argument("--min-conf", type=float, default=0.85, help="自动写回的最小置信度阈值，默认 0.85")
-    parser.add_argument("--autofix-scope", choices=["high", "all"], default="high", help="autofix 字段范围")
-    parser.add_argument("--latex-apostrophe", action="store_true", help="将作者名中的 ’ 转为 {\\textquoteright}")
+    # Online auto-fix options.
+    parser.add_argument("--autofix", action="store_true", help="Enable online auto-correction and write a fixed BibTeX file plus change records")
+    parser.add_argument("--no-network", action="store_true", help="Disable network access during autofix")
+    parser.add_argument("--min-conf", type=float, default=0.85, help="Minimum confidence for automatic write-back; defaults to 0.85")
+    parser.add_argument("--autofix-scope", choices=["high", "all"], default="high", help="Field scope for autofix")
+    parser.add_argument("--latex-apostrophe", action="store_true", help="Convert right single quotation marks in author names to {\\textquoteright}")
     parser.add_argument(
         "--fix",
         action="store_true",
-        help="启用自动修复（生成 fixed.bib 与 change log，默认仅检查）",
+        help="Enable automatic fixes and write fixed.bib plus a change log; default is check-only",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="仅输出 change log，不生成 fixed.bib",
+        help="Write only the change log without generating fixed.bib",
     )
     parser.add_argument(
         "--inplace",
         action="store_true",
-        help="覆盖原 bib 文件（会先备份为 .bak）",
+        help="Overwrite the input .bib file after creating a .bak backup",
     )
     parser.add_argument(
         "--aggressive",
         action="store_true",
-        help="中置信修复也自动应用（默认仅高置信）",
+        help="Also apply medium-confidence fixes; by default only high-confidence fixes are applied",
     )
     parser.add_argument(
         "--fixed-bib",
         default=None,
-        help="自定义修复后 bib 输出路径，默认 out/<name>.fixed.bib",
+        help="Custom path for the fixed BibTeX output; defaults to out/<name>.fixed.bib",
     )
     parser.add_argument(
         "--changes-log",
         default=None,
-        help="变更日志 jsonl 路径，默认 out/changes.jsonl",
+        help="Path for the JSONL change log; defaults to out/changes.jsonl",
     )
     parser.add_argument(
         "--fix-summary",
         default=None,
-        help="修复汇总 markdown 路径，默认 out/fix_summary.md",
+        help="Path for the Markdown fix summary; defaults to out/fix_summary.md",
     )
     return parser
 
@@ -187,7 +187,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = build_parser().parse_args(argv)
 
     if not os.path.isfile(args.bibfile):
-        print(f"找不到 bib 文件: {args.bibfile}", file=sys.stderr)
+        print(f"BibTeX file not found: {args.bibfile}", file=sys.stderr)
         sys.exit(1)
 
     os.makedirs(args.outdir, exist_ok=True)
@@ -294,7 +294,7 @@ def run_fix(args) -> int:
     write_changelog(applied + suggested, changes_path)
     write_fix_summary(applied, suggested, summary_path, target_path if not args.dry_run else "dry-run", args.dry_run)
 
-    # 如果修复后仍有 ERROR，保持退出码 1；否则 0
+    # Preserve exit code 1 while errors remain after fix planning.
     has_file_error = any(i["severity"] == "ERROR" for i in report_data.get("file_issues", []))
     exit_code = 1 if report_data["stats"]["error"] > 0 or has_file_error else 0
     return exit_code

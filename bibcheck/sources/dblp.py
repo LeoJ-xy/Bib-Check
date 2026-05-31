@@ -1,21 +1,26 @@
-import time
 from typing import Dict, List, Optional
 
 import requests
 
+from .common import SourceClientMixin, normalize_whitespace, request_json
 
-class DblpClient:
+
+class DblpClient(SourceClientMixin):
+    source_name = "dblp"
+
     def __init__(self, session: requests.Session, cache, rate_limiter):
         self.session = session
         self.cache = cache
         self.rate_limiter = rate_limiter
         self.base = "https://dblp.org/search/publ/api"
+        self.last_error = None
 
     def fetch_by_doi(self, doi: str) -> Optional[Dict]:
         results = self.search(doi, year=None, first_author=None)
         return results[0] if results else None
 
     def search(self, norm_title: str, year: str = None, first_author: str = None) -> List[Dict]:
+        self._clear_error()
         cache_key = f"dblp:search:{norm_title}:{year}:{first_author}"
         cached = self.cache.get(cache_key)
         if cached is not None:
@@ -29,6 +34,8 @@ class DblpClient:
         self.rate_limiter("dblp")
         data = self._request(self.base, params=params)
         results: List[Dict] = []
+        if self.last_error:
+            return results
         hits = (data or {}).get("result", {}).get("hits", {}).get("hit", [])
         for hit in hits[:5]:
             info = hit.get("info", {})
@@ -39,7 +46,7 @@ class DblpClient:
         return results
 
     def _parse_item(self, info: Dict) -> Optional[Dict]:
-        title = info.get("title")
+        title = normalize_whitespace(info.get("title") or "")
         if not title:
             return None
         authors = []
@@ -64,19 +71,8 @@ class DblpClient:
         }
 
     def _request(self, url: str, params: Dict = None):
-        backoff = 0.5
-        for _ in range(3):
-            try:
-                resp = self.session.get(url, params=params, timeout=10)
-                if resp.status_code == 404:
-                    return None
-                if resp.status_code >= 500:
-                    time.sleep(backoff)
-                    backoff *= 2
-                    continue
-                resp.raise_for_status()
-                return resp.json()
-            except requests.RequestException:
-                time.sleep(backoff)
-                backoff *= 2
-        return None
+        data, error = request_json(self.session, url, params=params, timeout=10)
+        if error:
+            details = {k: v for k, v in error.items() if k != "message"}
+            self._record_error(str(error.get("message", "request failed")), **details)
+        return data

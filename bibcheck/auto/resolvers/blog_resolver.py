@@ -66,7 +66,7 @@ def _extract_meta_first(html: str, names):
 
 
 def _extract_bibtex_block(html: str):
-    # 简化：找包含 @misc/@article 的 <pre><code> 或 ``` 块
+    # Simple heuristic: find a <pre><code> or fenced block containing @misc/@article.
     m = re.search(r"<pre><code[^>]*>(.*?)</code></pre>", html, flags=re.I | re.S)
     if m and "@misc" in m.group(1) or "@article" in m.group(1):
         return m.group(1).strip()
@@ -74,4 +74,3 @@ def _extract_bibtex_block(html: str):
     if fence and ("@misc" in fence.group(1) or "@article" in fence.group(1)):
         return fence.group(1).strip()
     return None
-

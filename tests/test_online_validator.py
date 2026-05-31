@@ -1,5 +1,7 @@
+import requests
 import responses
 
+from bibcheck.kind import classify_entry, extract_arxiv_id, extract_github_repo
 from bibcheck.cache import HTTPCache
 from bibcheck.validators_online import OnlineValidator, OnlineValidatorConfig
 
@@ -27,14 +29,15 @@ ARXIV_EMPTY_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 def test_arxiv_match_and_compare():
     responses.add(
         responses.GET,
-        "http://export.arxiv.org/api/query",
+        "https://export.arxiv.org/api/query",
         body=ARXIV_FEED,
         status=200,
         match=[responses.matchers.query_param_matcher({"id_list": "1234.56789"})],
     )
+    cache = HTTPCache(path=":memory:")
     validator = OnlineValidator(
         OnlineValidatorConfig(sources=[], enable_arxiv=True, enable_citation_cff=False),
-        cache=HTTPCache(path=":memory:"),
+        cache=cache,
     )
     entry = {
         "ID": "k1",
@@ -55,14 +58,15 @@ def test_arxiv_match_and_compare():
 def test_arxiv_not_found():
     responses.add(
         responses.GET,
-        "http://export.arxiv.org/api/query",
+        "https://export.arxiv.org/api/query",
         body=ARXIV_EMPTY_FEED,
         status=200,
         match=[responses.matchers.query_param_matcher({"id_list": "1234.56789"})],
     )
+    cache = HTTPCache(path=":memory:")
     validator = OnlineValidator(
         OnlineValidatorConfig(sources=[], enable_arxiv=True, enable_citation_cff=False),
-        cache=HTTPCache(path=":memory:"),
+        cache=cache,
     )
     entry = {
         "ID": "k2",
@@ -75,6 +79,97 @@ def test_arxiv_not_found():
     validator.validate_entry(entry)
     issue_types = {i["type"] for i in entry.get("_online_issues", [])}
     assert "NOT_FOUND_ON_ARXIV" in issue_types
+
+
+@responses.activate
+def test_arxiv_transport_error_is_not_reported_as_not_found():
+    for _ in range(3):
+        responses.add(
+            responses.GET,
+            "https://export.arxiv.org/api/query",
+            body=requests.ConnectionError("dns failed"),
+            match=[responses.matchers.query_param_matcher({"id_list": "1234.56789"})],
+        )
+    cache = HTTPCache(path=":memory:")
+    validator = OnlineValidator(
+        OnlineValidatorConfig(sources=[], enable_arxiv=True, enable_citation_cff=False),
+        cache=cache,
+    )
+    entry = {
+        "ID": "k2b",
+        "ENTRYTYPE": "misc",
+        "title": "Known Paper",
+        "author": "Bob Lee",
+        "year": "2020",
+        "eprint": "1234.56789",
+    }
+    validator.validate_entry(entry)
+    issue_types = {i["type"] for i in entry.get("_online_issues", [])}
+    assert "ARXIV_SOURCE_UNAVAILABLE" in issue_types
+    assert "NOT_FOUND_ON_ARXIV" not in issue_types
+    assert cache.get("arxiv:id:1234.56789") is None
+
+
+@responses.activate
+def test_doi_transport_error_is_not_reported_as_missing_doi():
+    doi = "10.1234/example"
+    for _ in range(3):
+        responses.add(
+            responses.GET,
+            f"https://api.crossref.org/works/{doi}",
+            body=requests.ConnectionError("network down"),
+        )
+    cache = HTTPCache(path=":memory:")
+    validator = OnlineValidator(
+        OnlineValidatorConfig(sources=["crossref"], enable_arxiv=False, enable_citation_cff=False),
+        cache=cache,
+    )
+    entry = {
+        "ID": "k2c",
+        "ENTRYTYPE": "article",
+        "title": "Known DOI Paper",
+        "author": "Alice Smith",
+        "year": "2020",
+        "doi": doi,
+    }
+    validator.validate_entry(entry)
+    issue_types = {i["type"] for i in entry.get("_online_issues", [])}
+    assert "ONLINE_SOURCE_UNAVAILABLE" in issue_types
+    assert "DOI_NOT_FOUND" not in issue_types
+    assert cache.get(f"crossref:doi:{doi}") is None
+
+
+@responses.activate
+def test_search_transport_error_is_not_reported_as_not_found_online():
+    for _ in range(3):
+        responses.add(
+            responses.GET,
+            "https://api.crossref.org/works",
+            body=requests.ConnectionError("network down"),
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"query.bibliographic": "cats on mat", "rows": "5", "filter": "from-pub-date:2020,until-pub-date:2020"}
+                )
+            ],
+        )
+    cache = HTTPCache(path=":memory:")
+    validator = OnlineValidator(
+        OnlineValidatorConfig(sources=["crossref"], enable_arxiv=False, enable_citation_cff=False),
+        cache=cache,
+    )
+    entry = {
+        "ID": "k2d",
+        "ENTRYTYPE": "inproceedings",
+        "title": "Cats on Mat",
+        "author": "Alice Smith",
+        "year": "2020",
+        "booktitle": "Proc. TestConf",
+    }
+    validator.validate_entry(entry)
+    issue_types = {i["type"] for i in entry.get("_online_issues", [])}
+    assert "ONLINE_SOURCE_UNAVAILABLE" in issue_types
+    assert "NOT_FOUND_ONLINE" not in issue_types
+    assert cache.get("crossref:search:cats on mat:2020:Alice Smith") is None
 
 
 @responses.activate
@@ -228,3 +323,45 @@ def test_confidence_gating_levels():
     resolved_low, _, issues_low = validator._apply_confidence_gating(entry, [low_candidate], "unknown")
     assert resolved_low is None
     assert any(i["type"] == "LOW_CONFIDENCE_CANDIDATE" for i in issues_low)
+
+
+def test_extract_arxiv_old_style_id_with_dotted_archive():
+    entry = {"eprint": "math.AG/0601001v2", "archivePrefix": "arXiv"}
+    assert extract_arxiv_id(entry) == "math.AG/0601001v2"
+
+
+def test_formal_entry_with_arxiv_copy_is_not_classified_as_preprint():
+    entry = {
+        "ENTRYTYPE": "article",
+        "title": "Published Paper",
+        "journal": "Journal of Tests",
+        "url": "https://arxiv.org/abs/2401.12345",
+    }
+    assert classify_entry(entry) == "scholarly_cslike"
+
+
+def test_nested_github_url_is_not_treated_as_software_repo():
+    entry = {
+        "ENTRYTYPE": "misc",
+        "title": "Dataset Report",
+        "url": "https://github.com/owner/repo/blob/main/report.pdf",
+    }
+    assert extract_github_repo(entry) is None
+
+
+def test_invalid_doi_skips_online_lookup():
+    validator = OnlineValidator(
+        OnlineValidatorConfig(sources=["crossref"], enable_arxiv=False, enable_citation_cff=False),
+        cache=HTTPCache(path=":memory:"),
+    )
+    entry = {
+        "ID": "bad",
+        "ENTRYTYPE": "article",
+        "title": "Bad DOI",
+        "author": "Alice Smith",
+        "year": "2020",
+        "doi": "bad_doi/xyz",
+    }
+    online = validator.validate_entry(entry)
+    assert online["checked"] is True
+    assert entry.get("_online_issues") is None

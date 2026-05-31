@@ -1,30 +1,38 @@
 import re
-import time
 import xml.etree.ElementTree as ET
 from typing import Dict, Optional
 
 import requests
 
+from .common import SourceClientMixin, normalize_whitespace, request_text
+
 
 ARXIV_ID_RE = re.compile(r"arxiv\.org/(abs|pdf)/([^?#\s]+)", flags=re.I)
 
 
-class ArxivClient:
+class ArxivClient(SourceClientMixin):
+    source_name = "arxiv"
+
     def __init__(self, session: requests.Session, cache, rate_limiter):
         self.session = session
         self.cache = cache
         self.rate_limiter = rate_limiter
-        self.base = "http://export.arxiv.org/api/query"
+        self.base = "https://export.arxiv.org/api/query"
+        self.last_error = None
 
     def fetch_by_id(self, arxiv_id: str) -> Optional[Dict]:
+        self._clear_error()
         cache_key = f"arxiv:id:{arxiv_id}"
         cached = self.cache.get(cache_key)
         if cached is not None:
             return cached
         self.rate_limiter("arxiv")
         data = self._request(self.base, params={"id_list": arxiv_id})
+        if self.last_error:
+            return None
         parsed = self._parse_atom(data) if data else None
-        self.cache.set(cache_key, parsed)
+        if parsed:
+            self.cache.set(cache_key, parsed)
         return parsed
 
     def _parse_atom(self, text: str) -> Optional[Dict]:
@@ -36,12 +44,12 @@ class ArxivClient:
         entry = root.find("atom:entry", ns)
         if entry is None:
             return None
-        title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+        title = normalize_whitespace(entry.findtext("atom:title", default="", namespaces=ns) or "")
         if not title:
             return None
         authors = []
         for author in entry.findall("atom:author", ns):
-            name = (author.findtext("atom:name", default="", namespaces=ns) or "").strip()
+            name = normalize_whitespace(author.findtext("atom:name", default="", namespaces=ns) or "")
             if name:
                 authors.append(name)
         published = entry.findtext("atom:published", default="", namespaces=ns) or ""
@@ -66,19 +74,8 @@ class ArxivClient:
         }
 
     def _request(self, url: str, params: Dict = None):
-        backoff = 0.5
-        for _ in range(3):
-            try:
-                resp = self.session.get(url, params=params, timeout=10)
-                if resp.status_code == 404:
-                    return None
-                if resp.status_code >= 500:
-                    time.sleep(backoff)
-                    backoff *= 2
-                    continue
-                resp.raise_for_status()
-                return resp.text
-            except requests.RequestException:
-                time.sleep(backoff)
-                backoff *= 2
-        return None
+        data, error = request_text(self.session, url, params=params, timeout=10)
+        if error:
+            details = {k: v for k, v in error.items() if k != "message"}
+            self._record_error(str(error.get("message", "request failed")), **details)
+        return data

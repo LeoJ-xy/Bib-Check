@@ -1,5 +1,5 @@
 def confidence_from_resolved(title_score: int = None, resolved_from_doi: bool = False, author_match: bool = True) -> float:
-    """根据标题相似度、是否 DOI 解析、作者是否匹配估计置信度 0-1。"""
+    """Estimate confidence from title similarity, DOI resolution, and author matching."""
     score = 0.0
     if resolved_from_doi:
         score = 1.0
@@ -26,7 +26,7 @@ class ConfidenceResult:
 
 def classify_confidence(title_score: int, doi_match: bool, author_match: bool) -> ConfidenceResult:
     """
-    根据标题相似度、DOI 是否匹配、作者是否匹配给出置信度。
+    Classify confidence from title similarity, DOI matching, and author matching.
     """
     if doi_match:
         return ConfidenceResult(1.0, "high", "doi_match")

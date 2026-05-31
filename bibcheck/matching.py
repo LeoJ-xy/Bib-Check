@@ -4,6 +4,8 @@ from rapidfuzz import fuzz
 
 from .normalize import normalize_title, normalize_authors, normalize_doi
 
+AUTHOR_WILDCARDS = {"others", "other", "et al", "et al.", "etal"}
+
 
 def title_score(local_title: str, candidate_title: str) -> float:
     if not local_title or not candidate_title:
@@ -14,24 +16,34 @@ def title_score(local_title: str, candidate_title: str) -> float:
 def _surname(author: str) -> str:
     if not author:
         return ""
+    author = author.replace("{", " ").replace("}", " ").strip()
     if "," in author:
         left = author.split(",")[0].strip()
         parts = left.split()
-        return parts[-1].lower() if parts else left.lower()
+        return _clean_author_token(parts[-1] if parts else left)
     parts = author.replace(",", " ").split()
-    return parts[-1].lower() if parts else author.lower()
+    return _clean_author_token(parts[-1] if parts else author)
+
+
+def _clean_author_token(value: str) -> str:
+    token = "".join(ch.lower() for ch in value if ch.isalnum())
+    if token in {"etal", "others", "other"}:
+        return ""
+    return token
 
 
 def author_score(local_author_field: str, candidate_authors: List[str]) -> float:
     local = normalize_authors(local_author_field)
     if not local or not candidate_authors:
         return 0.0
+    local_has_wildcard = any(a.strip().lower().strip("{} ") in AUTHOR_WILDCARDS for a in local)
     local_surnames = {_surname(a) for a in local if _surname(a)}
     candidate_surnames = {_surname(a) for a in candidate_authors if _surname(a)}
     if not local_surnames or not candidate_surnames:
         return 0.0
     overlap = local_surnames.intersection(candidate_surnames)
-    return len(overlap) / max(len(local_surnames), len(candidate_surnames))
+    denominator = len(local_surnames) if local_has_wildcard else max(len(local_surnames), len(candidate_surnames))
+    return len(overlap) / denominator if denominator else 0.0
 
 
 def year_score(local_year: Optional[str], candidate_year: Optional[str]) -> float:
@@ -72,5 +84,8 @@ def compute_match_confidence(entry: dict, candidate: dict) -> Tuple[float, Dict[
         candidate.get("venue") or "",
     )
 
-    total = 0.55 * t_score + 0.30 * a_score + 0.10 * y_score + 0.05 * v_score
+    if t_score >= 0.98 and y_score == 1.0 and (a_score >= 0.5 or not candidate.get("authors")):
+        total = max(0.85, 0.55 * t_score + 0.30 * a_score + 0.10 * y_score + 0.05 * v_score)
+    else:
+        total = 0.55 * t_score + 0.30 * a_score + 0.10 * y_score + 0.05 * v_score
     return max(0.0, min(1.0, total)), {"title": t_score, "authors": a_score, "year": y_score, "venue": v_score, "doi_match": 0.0}

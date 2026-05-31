@@ -13,7 +13,7 @@ class ReportBuilder:
         self.file_issues.append(issue)
 
     def collect_entry(self, entry: dict, issues: List[dict], online_data: dict, fix_plan_preview: List[dict] = None):
-        # 去重同类问题，避免重复出现（如同一 citekey 多条目共享静态问题）
+        # Deduplicate equivalent issues, for example static issues shared by duplicate citekeys.
         combined = issues + entry.get("_online_issues", [])
         seen = set()
         all_issues = []
@@ -96,19 +96,19 @@ def write_csv_report(report: dict, path: str):
 
 def print_summary(report: dict):
     stats = report["stats"]
-    print("====== BibCheck 汇总 ======")
-    print(f"总条目数: {stats['total']}")
+    print("====== BibCheck Summary ======")
+    print(f"Total entries: {stats['total']}")
     print(f"OK/WARNING/ERROR: {stats['ok']}/{stats['warning']}/{stats['error']}")
     if report["file_issues"]:
-        print(f"文件级问题: {len(report['file_issues'])}")
+        print(f"File-level issues: {len(report['file_issues'])}")
         for iss in report["file_issues"]:
             print(f"  {iss['type']}: {iss['message']}")
-    print("按错误类型计数:")
+    print("Issue counts by type:")
     for k, v in stats["by_issue_type"].items():
         print(f"  {k}: {v}")
     error_keys = [e["citekey"] for e in report["entries"] if e["status"] == "ERROR"]
     if error_keys:
-        print("ERROR citekey 列表:")
+        print("ERROR citekeys:")
         print(", ".join(error_keys))
 
 
@@ -116,4 +116,3 @@ def _default_serializer(obj):
     if isinstance(obj, defaultdict):
         return dict(obj)
     raise TypeError(f"Type not serializable: {type(obj)}")
-

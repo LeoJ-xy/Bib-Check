@@ -28,7 +28,7 @@ def run_static_validations(entries: List[Entry]) -> Dict[str, List[Issue]]:
                 {
                     "type": "DUPLICATE_CITEKEY",
                     "severity": "ERROR",
-                    "message": f"citekey `{key}` 重复 {cnt} 次",
+                    "message": f"citekey `{key}` appears {cnt} times",
                     "details": {},
                 }
             )
@@ -44,7 +44,7 @@ def run_static_validations(entries: List[Entry]) -> Dict[str, List[Issue]]:
                 {
                     "type": "MISSING_REQUIRED_FIELDS",
                     "severity": "ERROR",
-                    "message": f"缺少必要字段: {', '.join(missing)}",
+                    "message": f"Missing required fields: {', '.join(missing)}",
                     "details": {"missing": missing},
                 }
             )
@@ -55,7 +55,7 @@ def run_static_validations(entries: List[Entry]) -> Dict[str, List[Issue]]:
                 {
                     "type": "BAD_YEAR",
                     "severity": "ERROR",
-                    "message": f"year 非法: {year_val}",
+                    "message": f"Invalid year: {year_val}",
                     "details": {},
                 }
             )
@@ -68,7 +68,7 @@ def run_static_validations(entries: List[Entry]) -> Dict[str, List[Issue]]:
                     {
                         "type": "BAD_DOI_FORMAT",
                         "severity": "ERROR",
-                        "message": f"DOI 格式异常: {doi_raw}",
+                        "message": f"Invalid DOI format: {doi_raw}",
                         "details": {},
                     }
                 )
@@ -79,7 +79,7 @@ def run_static_validations(entries: List[Entry]) -> Dict[str, List[Issue]]:
                 {
                     "type": "BAD_URL_FORMAT",
                     "severity": "WARNING",
-                    "message": f"URL 格式异常: {url_val}",
+                    "message": f"Invalid URL format: {url_val}",
                     "details": {"url": url_val},
                 }
             )
@@ -92,12 +92,12 @@ def run_static_validations(entries: List[Entry]) -> Dict[str, List[Issue]]:
                     {
                         "type": "SUSPICIOUS_METADATA",
                         "severity": "WARNING",
-                        "message": "pages 格式异常",
+                        "message": "Invalid pages format",
                         "details": {
                             "pages_raw": pages_val,
                             "pages_norm": norm_pages,
                             "pattern": "digit or A?digit with -- range",
-                            "hint": "将 –/— 改为 --，或将单短横范围改为双短横",
+                            "hint": "Use -- for page ranges and replace en/em dashes or single hyphens in ranges.",
                         },
                     }
                 )
@@ -136,14 +136,24 @@ def _detect_suspicious(entry: Entry) -> List[str]:
     msgs = []
     title = entry.get("title", "")
     if title and (title.isupper() or title.islower()):
-        msgs.append("标题大小写异常")
+        msgs.append("Title capitalization looks suspicious")
     authors = entry.get("author", "")
-    if authors and len(authors.split("and")) > 20:
-        msgs.append("作者数量过多，疑似格式问题")
+    if _looks_like_author_separator_issue(authors):
+        msgs.append("Author separators look suspicious")
     venue = normalize_venue(entry)
     if venue and len(venue) < 3:
-        msgs.append("venue 过短，疑似缺失")
+        msgs.append("Venue is unusually short")
     return msgs
+
+
+def _looks_like_author_separator_issue(authors: str) -> bool:
+    if not authors:
+        return False
+    if re.search(r"\band\b", authors, flags=re.I):
+        return False
+    if ";" in authors:
+        return False
+    return authors.count(",") >= 4
 
 
 def normalize_pages_field(p: str) -> str:
@@ -164,5 +174,3 @@ def _pages_ok(p: str) -> bool:
     if re.fullmatch(r"[A-Za-z]?\d+--[A-Za-z]?\d+", p):
         return True
     return False
-
-

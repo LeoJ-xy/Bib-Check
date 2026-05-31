@@ -12,7 +12,6 @@ DEFAULT_BLOG_DOMAINS = [
     "substack.com",
     "medium.com",
     "ai.googleblog.com",
-    "example.com",
 ]
 
 

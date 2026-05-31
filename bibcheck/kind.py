@@ -1,9 +1,10 @@
 import re
 from typing import Optional
+from urllib.parse import urlparse
 
 
 ARXIV_NEW_RE = re.compile(r"\b(\d{4}\.\d{4,5})(v\d+)?\b", flags=re.I)
-ARXIV_OLD_RE = re.compile(r"\b([a-z\-]+/\d{7})(v\d+)?\b", flags=re.I)
+ARXIV_OLD_RE = re.compile(r"\b([a-z][a-z.\-]*/\d{7})(v\d+)?\b", flags=re.I)
 ARXIV_URL_RE = re.compile(r"arxiv\.org/(abs|pdf)/([^?#\s]+)", flags=re.I)
 GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s#?]+)", flags=re.I)
 
@@ -45,15 +46,26 @@ def extract_github_repo(entry: dict) -> Optional[str]:
     url = get_field(entry, "url") or ""
     howpublished = get_field(entry, "howpublished") or ""
     note = get_field(entry, "note") or ""
-    for field in (url, howpublished, note):
+    for field, allow_nested in ((url, False), (howpublished, True), (note, True)):
         if not field:
             continue
         m = GITHUB_REPO_RE.search(field)
         if m:
+            if not allow_nested and _github_url_has_nested_path(field):
+                continue
             owner = m.group(1)
             repo = re.sub(r"\.git$", "", m.group(2))
             return f"{owner}/{repo}".lower()
     return None
+
+
+def _github_url_has_nested_path(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    parts = [p for p in parsed.path.split("/") if p]
+    return len(parts) > 2
 
 
 def classify_entry(entry: dict) -> str:
@@ -65,14 +77,14 @@ def classify_entry(entry: dict) -> str:
 
     if doi:
         return "scholarly_doi"
+    if entry_type in {"inproceedings", "proceedings"} or get_field(entry, "booktitle"):
+        return "scholarly_cslike"
+    if get_field(entry, "journal"):
+        return "scholarly_cslike"
     if arxiv_id:
         return "preprint_arxiv"
     if github_repo:
         return "software_github"
     if entry_type in {"misc", "online", "software", "manual"} and url:
         return "web_generic"
-    if entry_type in {"inproceedings", "proceedings"} or get_field(entry, "booktitle"):
-        return "scholarly_cslike"
-    if get_field(entry, "journal") or get_field(entry, "booktitle"):
-        return "scholarly_cslike"
     return "unknown"

@@ -1,5 +1,6 @@
 import requests
 from ..core.normalize import norm_doi
+from ...sources.common import normalize_whitespace, request_json
 
 
 def resolve_doi(doi: str, session: requests.Session, cache, user_agent: str):
@@ -10,16 +11,15 @@ def resolve_doi(doi: str, session: requests.Session, cache, user_agent: str):
     cached = cache.get(ck)
     if cached:
         return cached
-    headers = {"User-Agent": user_agent}
     url = f"https://api.crossref.org/works/{doi}"
-    r = session.get(url, headers=headers, timeout=10)
-    if r.status_code != 200:
+    payload, error = request_json(session, url, timeout=10)
+    if error or not payload:
         return None
-    msg = r.json().get("message", {})
+    msg = payload.get("message", {})
     data = {
         "source": "crossref",
         "doi": msg.get("DOI"),
-        "title": " ".join(msg.get("title") or []),
+        "title": normalize_whitespace(" ".join(msg.get("title") or [])),
         "authors": [
             " ".join(filter(None, [a.get("given"), a.get("family")])).strip()
             for a in msg.get("author", []) if a.get("given") or a.get("family")
@@ -30,4 +30,3 @@ def resolve_doi(doi: str, session: requests.Session, cache, user_agent: str):
     }
     cache.set(ck, data)
     return data
-

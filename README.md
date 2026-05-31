@@ -1,15 +1,17 @@
-# Bib-Check：BibTeX 引用真实性/一致性校验器
+# Bib-Check 1.5: BibTeX Reference Authenticity and Consistency Checker
 
-## 简介
+## Overview
 
-Bib-Check 是面向科研/工程工作流的 BibTeX 校验与联网矫正工具。默认只检查，不修改文件；显式开启 fix/autofix 才会生成修复版 bib 与变更日志。核心能力：
+Bib-Check is a BibTeX validation and online correction tool for research and engineering workflows. By default it only checks files and does not modify them; fixed BibTeX files and change logs are written only when `--fix` or `--autofix` is explicitly enabled. Version 1.5 focuses on preventing temporary online-source failures from being misreported as missing papers, and improves handling for arXiv records, long author lists, venues, web pages, and dataset entries.
 
-- 静态检查：解析错误、重复 citekey、必填字段缺失、年份/DOI/URL 格式、pages 规范化等。
-- 联网一致性：Crossref/OpenAlex/Semantic Scholar + arXiv/DBLP/CITATION.cff，标题/作者/年份/venue 对齐，DOI 找不到/不匹配报警，低置信匹配进入人工核对。
-- Auto-fix（可选）：高置信补 DOI/作者/标题/年份/venue/pages；arXiv DOI 归一化；pages 规范化。
-- Blog-aware（可选）：识别研究博客/项目页（OpenAI/Anthropic/Transformer Circuits 等），抓取网页元数据/官方 BibTeX，补全 title/author/date/url/howpublished/note。
+Core capabilities:
 
-## 安装
+- Static validation: parse errors, duplicate citekeys, missing required fields, year/DOI/URL format checks, and page-range normalization.
+- Online consistency checks: Crossref, OpenAlex, Semantic Scholar, arXiv, DBLP, and CITATION.cff; title, author, year, venue, and DOI alignment; confidence-gated candidate matching.
+- Optional auto-fix: high-confidence DOI, author, title, year, venue, and page fixes; arXiv DOI normalization; page-range normalization.
+- Optional blog-aware correction: detects research blogs and project pages, fetches web metadata or official BibTeX snippets, and can fill title, author, date, URL, `howpublished`, and `note`.
+
+## Installation
 
 ```bash
 python -m venv .venv
@@ -17,74 +19,76 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 快速开始
+## Quick Start
 
-- 仅检查（默认联网）：`python -m bibcheck sample.bib`
-- 显式离线：`python -m bibcheck sample.bib --offline`
-- 生成修复建议/文件（传统 fix，主要针对 DOI/元数据高置信修复）：`python -m bibcheck sample.bib --fix`
-- 联网自动矫正（含 blog-aware，高置信>=0.85 自动写回，其余为建议）：`python -m bibcheck sample.bib --autofix --outdir out --min-conf 0.85 --autofix-scope high`
-- 只想预览变更可加 `--dry-run`；`--no-network` 可禁用联网。
+- Check with online sources enabled by default: `python -m bibcheck sample.bib`
+- Run explicitly offline: `python -m bibcheck sample.bib --offline`
+- Generate traditional fix suggestions and a fixed file, mainly for high-confidence DOI and metadata fixes: `python -m bibcheck sample.bib --fix`
+- Run online autofix with blog-aware support; changes at confidence `>=0.85` are written automatically and lower-confidence changes remain suggestions: `python -m bibcheck sample.bib --autofix --outdir out --min-conf 0.85 --autofix-scope high`
+- Use `--dry-run` to preview changes only. Use `--no-network` to disable network access during autofix.
 
-## 常用参数
+## Common Options
 
-- `--outdir out` 报告/输出目录
-- `--max-entries N` 只检查前 N 条
-- `--sources crossref,openalex,s2` 在线数据源（论文类检索）
-- `--enable-arxiv` / `--disable-arxiv` 启用/禁用 arXiv API（默认开启）
-- `--enable-dblp` 启用 DBLP（仅 CS 条目，默认关闭）
-- `--enable-citation-cff` / `--disable-citation-cff` 启用/禁用 GitHub CITATION.cff（默认开启）
-- `--high-conf` / `--mid-conf` 置信度门控阈值（默认 0.8/0.6）
-- `--user-agent` 自定义 UA
-- Fix：`--fix` / `--dry-run` / `--inplace` / `--aggressive`
-- Autofix：`--autofix` / `--no-network` / `--min-conf` / `--autofix-scope` / `--fixed-bib` / `--changes-log` / `--fix-summary`
-- `--latex-apostrophe` 将作者名中的 ’ 转为 `{\\textquoteright}`
+- `--outdir out`: report and artifact output directory.
+- `--max-entries N`: check only the first N entries.
+- `--sources crossref,openalex,s2`: online scholarly lookup sources.
+- `--enable-arxiv` / `--disable-arxiv`: enable or disable the arXiv API; enabled by default.
+- `--enable-dblp`: enable DBLP for computer science entries; disabled by default.
+- `--enable-citation-cff` / `--disable-citation-cff`: enable or disable GitHub CITATION.cff lookup; enabled by default.
+- `--high-conf` / `--mid-conf`: confidence gating thresholds; defaults are `0.8` and `0.6`.
+- `--user-agent`: custom HTTP User-Agent.
+- Fix options: `--fix`, `--dry-run`, `--inplace`, `--aggressive`.
+- Autofix options: `--autofix`, `--no-network`, `--min-conf`, `--autofix-scope`, `--fixed-bib`, `--changes-log`, `--fix-summary`.
+- `--latex-apostrophe`: convert right single quotation marks in author names to `{\\textquoteright}`.
 
-退出码：若存在 ERROR 级问题则返回 1，否则 0，便于 CI。
+Exit code: Bib-Check returns `1` when ERROR-level issues remain, and `0` otherwise. This makes it suitable for CI checks.
 
-## 输出
+## Outputs
 
-- `out/report.json`：结构化报告
-- `out/report.csv`：摘要行（citekey、状态、问题等）
-- 终端汇总：总数、OK/WARNING/ERROR、按错误类型计数、ERROR citekey 列表
-- Fix/Autofix 额外输出：
-  - `out/<name>.fixed.bib`（或原文件，若 `--inplace`）
-  - `out/changes.jsonl` 变更日志（citekey、字段、old/new、来源、置信度、时间戳）
-  - `out/fix_summary.md` 修复汇总
+- `out/report.json`: structured report.
+- `out/report.csv`: summary rows with citekey, status, issues, DOI, title, and year.
+- Terminal summary: total entries, OK/WARNING/ERROR counts, issue counts by type, and ERROR citekeys.
+- Additional Fix/Autofix outputs:
+  - `out/<name>.fixed.bib`, or the original file when `--inplace` is used.
+  - `out/changes.jsonl`: change log with citekey, field, old/new values, source, confidence, and timestamp.
+  - `out/fix_summary.md`: Markdown fix summary.
 
-## 支持的主要错误类型
+## Main Issue Types
 
-- 静态：`PARSE_ERROR`、`DUPLICATE_CITEKEY`、`MISSING_REQUIRED_FIELDS`、`BAD_YEAR`、`BAD_DOI_FORMAT`、`BAD_URL_FORMAT`、`SUSPICIOUS_METADATA`
-- 联网：`DOI_NOT_FOUND`、`TITLE_MISMATCH`、`YEAR_MISMATCH`、`AUTHOR_MISMATCH`、`VENUE_MISMATCH`、`CANDIDATE_FOUND_NO_DOI`、`NOT_FOUND_ONLINE`
-- 新增：`NOT_FOUND_ON_ARXIV`、`CITATION_CFF_MISSING`、`AMBIGUOUS_MATCH`、`LOW_CONFIDENCE_CANDIDATE`
-- Blog-aware：`WEB_CITATION_NEEDS_URLDATE`、`WEB_TITLE_MISMATCH`、`WEB_AUTHOR_MISMATCH`、`WEB_DATE_MISMATCH`、`WEB_CITATION_HAS_FAKE_DOI`、`WEB_BIBTEX_AVAILABLE`
+- Static: `PARSE_ERROR`, `DUPLICATE_CITEKEY`, `MISSING_REQUIRED_FIELDS`, `BAD_YEAR`, `BAD_DOI_FORMAT`, `BAD_URL_FORMAT`, `SUSPICIOUS_METADATA`.
+- Online: `DOI_NOT_FOUND`, `TITLE_MISMATCH`, `YEAR_MISMATCH`, `AUTHOR_MISMATCH`, `VENUE_MISMATCH`, `CANDIDATE_FOUND_NO_DOI`, `NOT_FOUND_ONLINE`.
+- arXiv, software, and confidence gating: `NOT_FOUND_ON_ARXIV`, `CITATION_CFF_MISSING`, `AMBIGUOUS_MATCH`, `LOW_CONFIDENCE_CANDIDATE`.
+- Blog-aware: `WEB_CITATION_NEEDS_URLDATE`, `WEB_TITLE_MISMATCH`, `WEB_AUTHOR_MISMATCH`, `WEB_DATE_MISMATCH`, `WEB_CITATION_HAS_FAKE_DOI`, `WEB_BIBTEX_AVAILABLE`.
 
-## 典型工作流
+## Typical Workflow
 
-1. 从 Overleaf/Zotero 导出 `.bib`
-2. `python -m bibcheck your.bib` 查看报告
-3. 若存在明显错误，手工或回到参考管理工具修正
-4. 需要自动补 DOI/元数据：`python -m bibcheck your.bib --fix`
-5. 含研究博客/项目页，想自动对齐网页元数据：`python -m bibcheck your.bib --autofix --min-conf 0.85`
-6. arXiv 预印本优先查 arXiv API，GitHub 软件条目优先读取 CITATION.cff，CS 论文可选 DBLP 兜底。
+1. Export a `.bib` file from Overleaf, Zotero, or another reference manager.
+2. Run `python -m bibcheck your.bib` and inspect the report.
+3. Fix clear problems manually or in the reference manager.
+4. Use `python -m bibcheck your.bib --fix` when you want high-confidence DOI or metadata fixes.
+5. Use `python -m bibcheck your.bib --autofix --min-conf 0.85` for research blogs, project pages, and online metadata alignment.
+6. arXiv preprints are checked with the arXiv API, GitHub software entries can use CITATION.cff, and DBLP can be enabled as an optional fallback for computer science entries.
 
-## 开发与测试
+## Development and Tests
 
 ```bash
 pytest
 ```
 
-测试中所有在线请求均使用 `responses` mock，无需真实联网。
+All online requests in the test suite are mocked with `responses`; tests do not require real network access.
 
-## 示例
+## Example
 
-`sample.bib` 包含：
+`sample.bib` includes:
 
-- 正确 DOI 条目（ResNet）
-- 明显错误条目（年/DOI/URL/pages）
-- arXiv 需归一化/补 DOI
-- OpenAI 研究博客条目（blog-aware 测试）
+- Correct DOI entries.
+- A formally published entry that also includes an arXiv copy.
+- arXiv preprint entries.
+- A research blog entry.
+- A GitHub-hosted report URL that should not be treated as a software repository root.
+- A deliberately faulty entry with invalid year, DOI, URL, and pages.
 
-示例命令：
+Example commands:
 
 ```bash
 python -m bibcheck sample.bib

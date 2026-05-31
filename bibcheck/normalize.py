@@ -22,16 +22,16 @@ def normalize_title(title: str) -> str:
 
 
 def normalize_authors(authors: Optional[str]) -> List[str]:
-    """优先按 'and' 分隔作者，避免把“Last, First”误拆。"""
+    """Prefer splitting authors on BibTeX "and" to avoid splitting "Last, First" names."""
     if not authors:
         return []
-    # 若包含 and，以 and 为准
+    # Prefer BibTeX "and" when present.
     if re.search(r"\band\b", authors, flags=re.I):
         parts = re.split(r"\s+and\s+", authors, flags=re.I)
     elif ";" in authors:
         parts = authors.split(";")
     else:
-        # 最后兜底才用逗号，避免误拆姓/名
+        # Use no comma fallback here; commas are valid inside "Last, First" names.
         parts = [authors]
     return [a.strip() for a in parts if a.strip()]
 

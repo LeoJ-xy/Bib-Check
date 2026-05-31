@@ -16,17 +16,17 @@ def write_changelog(changes: List[dict], path: str):
 def write_fix_summary(applied: List[dict], suggested: List[dict], path: str, fixed_path: str, dry_run: bool):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     lines = []
-    lines.append("# bibcheck 修复汇总")
+    lines.append("# bibcheck Fix Summary")
     lines.append("")
-    lines.append(f"- 应用修复数: {len([c for c in applied if c['applied']])}")
-    lines.append(f"- 建议未自动应用: {len([c for c in suggested if not c['applied']])}")
-    lines.append(f"- 输出文件: {'无（dry-run）' if dry_run else fixed_path}")
+    lines.append(f"- Applied fixes: {len([c for c in applied if c['applied']])}")
+    lines.append(f"- Suggestions not applied automatically: {len([c for c in suggested if not c['applied']])}")
+    lines.append(f"- Output file: {'none (dry-run)' if dry_run else fixed_path}")
     if applied:
-        lines.append("\n## 已应用")
+        lines.append("\n## Applied")
         for c in applied:
             lines.append(f"- {c['citekey']} {c['field']}: {c.get('old')} -> {c.get('new')} (conf={c.get('confidence'):.2f}, src={c.get('source')})")
     if suggested:
-        lines.append("\n## 建议（未自动应用）")
+        lines.append("\n## Suggestions (not applied automatically)")
         for c in suggested:
             lines.append(f"- {c['citekey']} {c['field']}: {c.get('old')} -> {c.get('new')} (conf={c.get('confidence'):.2f}, src={c.get('source')})")
     with open(path, "w", encoding="utf-8") as f:
@@ -43,4 +43,3 @@ def write_changes_jsonl(changes: List[Dict], path: str):
             payload.setdefault("timestamp", time.time())
             f.write(json.dumps(payload, ensure_ascii=False))
             f.write("\n")
-

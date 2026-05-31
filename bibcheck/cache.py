@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 
 class HTTPCache:
-    """简单 SQLite 缓存，按 key 存储 JSON 串。"""
+    """Small SQLite cache that stores JSON payloads by key."""
 
     def __init__(self, path: Optional[str] = None):
         self._conn_obj: Optional[sqlite3.Connection] = None

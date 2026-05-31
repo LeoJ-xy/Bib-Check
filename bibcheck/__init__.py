@@ -1,7 +1,4 @@
-"""
-BibTeX 引用真实性/一致性校验器。
-"""
+"""BibTeX reference authenticity and consistency checker."""
 
 __all__ = ["__version__"]
-__version__ = "0.1.0"
-
+__version__ = "1.5.0"

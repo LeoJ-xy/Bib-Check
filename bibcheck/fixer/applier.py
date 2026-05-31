@@ -36,7 +36,7 @@ class FixApplier:
                 continue
             for action in plan.get("actions", []):
                 if self._should_apply(action["confidence"]):
-                    # 处理需要删除的字段（如 arXiv 迁移时删除 journal/booktitle）
+                    # Remove fields requested by migration actions, such as arXiv venue cleanup.
                     extra = action.get("extra") or {}
                     for rf in extra.get("remove_fields", []):
                         entry.pop(rf, None)
@@ -76,7 +76,7 @@ class FixApplier:
             f.write(writer.write(db))
 
     def _clean_entry(self, entry: dict) -> dict:
-        """移除内部字段与非字符串值，避免写出失败。"""
+        """Remove internal fields and non-string values so BibTeX writing cannot fail."""
         keep = {}
         for k, v in entry.items():
             if k.startswith("_"):
@@ -87,8 +87,7 @@ class FixApplier:
             if v is None:
                 continue
             if not isinstance(v, str):
-                # 丢弃非字符串，避免 writer 抛错
+                # Drop non-string values to avoid writer errors.
                 continue
             keep[k] = v
         return keep
-

@@ -9,7 +9,7 @@ Entry = Dict[str, object]
 
 
 def load_bib_entries(path: str, max_entries: int = None) -> Tuple[List[Entry], List[Issue]]:
-    """解析 BibTeX 文件，返回条目与解析问题。"""
+    """Parse a BibTeX file and return entries plus parse issues."""
     parser = BibTexParser(common_strings=True)
     parser.customization = None
     parse_issues: List[Issue] = []
@@ -21,7 +21,7 @@ def load_bib_entries(path: str, max_entries: int = None) -> Tuple[List[Entry], L
             {
                 "type": "PARSE_ERROR",
                 "severity": "ERROR",
-                "message": f"无法读取文件: {exc}",
+                "message": f"Unable to read file: {exc}",
                 "details": {"line": None},
             }
         )
@@ -29,14 +29,14 @@ def load_bib_entries(path: str, max_entries: int = None) -> Tuple[List[Entry], L
 
     try:
         bib_db = bibtexparser.loads(content, parser=parser)
-    except Exception as exc:  # bibtexparser 的异常信息里通常含有行号
+    except Exception as exc:  # bibtexparser exceptions often include line numbers.
         line_no = _extract_line_number(str(exc))
         ctx = _extract_context(content, line_no) if line_no else None
         parse_issues.append(
             {
                 "type": "PARSE_ERROR",
                 "severity": "ERROR",
-                "message": f"BibTeX 解析失败: {exc}",
+                "message": f"BibTeX parsing failed: {exc}",
                 "details": {"line": line_no, "context": ctx},
             }
         )
@@ -61,5 +61,4 @@ def _extract_context(content: str, line_no: int, window: int = 2) -> str:
     start = max(0, idx - window)
     end = min(len(lines), idx + window + 1)
     return "\n".join(f"{i+1}:{lines[i]}" for i in range(start, end))
-
 

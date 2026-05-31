@@ -25,7 +25,7 @@ class OnlineValidatorConfig:
     offline: bool = False
     sources: List[str] = None
     verbose: bool = False
-    user_agent: str = "bibcheck/0.1"
+    user_agent: str = "bibcheck/1.5"
     enable_arxiv: bool = True
     enable_dblp: bool = False
     enable_citation_cff: bool = True
@@ -51,6 +51,14 @@ class OnlineValidator:
             "dblp": 0.0,
             "citation_cff": 0.0,
         }
+        self.rate_delays = {
+            "crossref": 1.0,
+            "openalex": 1.0,
+            "s2": 1.0,
+            "arxiv": 3.0,
+            "dblp": 1.0,
+            "citation_cff": 1.0,
+        }
         self.clients = {
             "crossref": CrossrefClient(self.session, self.cache, self._rate_limit),
             "openalex": OpenAlexClient(self.session, self.cache, self._rate_limit),
@@ -64,8 +72,9 @@ class OnlineValidator:
         last = self.rate_marks.get(source, 0.0)
         now = time.time()
         elapsed = now - last
-        if elapsed < 1.0:
-            time.sleep(1.0 - elapsed)
+        delay = self.rate_delays.get(source, 1.0)
+        if elapsed < delay:
+            time.sleep(delay - elapsed)
         self.rate_marks[source] = time.time()
 
     def validate_entry(self, entry: Entry) -> Dict[str, object]:
@@ -86,6 +95,9 @@ class OnlineValidator:
         issues: List[Issue] = []
         resolved = None
 
+        if doi and not _valid_doi_for_lookup(doi):
+            return online_data
+
         if doi:
             resolved, candidate_matches, issues = self._check_with_doi(entry, doi)
             online_data["resolved"] = resolved
@@ -99,6 +111,8 @@ class OnlineValidator:
             elif entry_kind == "software_github" and self.config.enable_citation_cff:
                 repo = extract_github_repo(entry)
                 resolved, candidate_matches, issues = self._check_with_citation_cff(entry, repo)
+            elif entry_kind == "web_generic":
+                resolved, candidate_matches, issues = None, [], []
             else:
                 resolved, candidate_matches, issues = self._search_without_doi(entry, entry_kind)
             online_data["resolved"] = resolved
@@ -122,11 +136,21 @@ class OnlineValidator:
                 resolved = metadata
                 break
         if not resolved:
+            source_errors = self._collect_source_errors(self.config.sources)
+            if source_errors:
+                issues.append(
+                    self._source_unavailable_issue(
+                        "ONLINE_SOURCE_UNAVAILABLE",
+                        "Some online sources are temporarily unavailable; DOI existence could not be confirmed.",
+                        source_errors,
+                    )
+                )
+                return None, candidate_matches, issues
             issues.append(
                 {
                     "type": "DOI_NOT_FOUND",
                     "severity": "ERROR",
-                    "message": f"在线数据源均未找到 DOI {doi}",
+                    "message": f"No configured online source found DOI {doi}",
                     "details": {},
                 }
             )
@@ -143,7 +167,7 @@ class OnlineValidator:
                 {
                     "type": "NOT_FOUND_ON_ARXIV",
                     "severity": "ERROR",
-                    "message": "未能解析 arXiv ID",
+                    "message": "Unable to parse arXiv ID",
                     "details": {},
                 }
             )
@@ -151,11 +175,21 @@ class OnlineValidator:
         client = self.clients.get("arxiv")
         resolved = client.fetch_by_id(arxiv_id) if client else None
         if not resolved:
+            source_errors = self._collect_source_errors(["arxiv"])
+            if source_errors:
+                issues.append(
+                    self._source_unavailable_issue(
+                        "ARXIV_SOURCE_UNAVAILABLE",
+                        f"The arXiv API is temporarily unavailable; existence of {arxiv_id} could not be confirmed.",
+                        source_errors,
+                    )
+                )
+                return None, candidate_matches, issues
             issues.append(
                 {
                     "type": "NOT_FOUND_ON_ARXIV",
                     "severity": "ERROR",
-                    "message": f"arXiv 未找到 {arxiv_id}",
+                    "message": f"arXiv did not find {arxiv_id}",
                     "details": {"arxiv_id": arxiv_id},
                 }
             )
@@ -173,7 +207,7 @@ class OnlineValidator:
                 {
                     "type": "CITATION_CFF_MISSING",
                     "severity": "WARNING",
-                    "message": "未识别到 GitHub 仓库地址，无法获取 CITATION.cff",
+                    "message": "GitHub repository URL was not recognized; CITATION.cff cannot be fetched.",
                     "details": {},
                 }
             )
@@ -182,11 +216,21 @@ class OnlineValidator:
         client = self.clients.get("citation_cff")
         result = client.fetch_by_repo(owner, repo_name) if client else {"status": "missing", "candidate": None}
         if result.get("status") != "found":
+            source_errors = self._collect_source_errors(["citation_cff"])
+            if source_errors:
+                issues.append(
+                    self._source_unavailable_issue(
+                        "CITATION_CFF_UNAVAILABLE",
+                        "GitHub CITATION.cff is temporarily unavailable.",
+                        source_errors,
+                    )
+                )
+                return None, candidate_matches, issues
             issues.append(
                 {
                     "type": "CITATION_CFF_MISSING",
                     "severity": "WARNING",
-                    "message": "未找到 CITATION.cff（可选）",
+                    "message": "CITATION.cff was not found (optional).",
                     "details": {"repo": repo},
                 }
             )
@@ -207,6 +251,13 @@ class OnlineValidator:
         year = entry.get("year")
 
         sources = list(self.config.sources)
+        arxiv_id = extract_arxiv_id(entry)
+        if self.config.enable_arxiv and arxiv_id:
+            client = self.clients.get("arxiv")
+            arxiv_match = client.fetch_by_id(arxiv_id) if client else None
+            if arxiv_match:
+                arxiv_match["score"] = title_similarity(entry.get("title", ""), arxiv_match.get("title", ""))
+                candidate_matches.append(arxiv_match)
         if self.config.enable_dblp and entry_kind == "scholarly_cslike":
             sources.append("dblp")
         for src in sources:
@@ -219,9 +270,38 @@ class OnlineValidator:
                 m["score"] = score
                 candidate_matches.append(m)
 
+        if not candidate_matches:
+            source_errors = self._collect_source_errors(sources)
+            if source_errors:
+                issues.append(
+                    self._source_unavailable_issue(
+                        "ONLINE_SOURCE_UNAVAILABLE",
+                        "Some online sources are temporarily unavailable; candidate search could not be completed.",
+                        source_errors,
+                    )
+                )
+                return None, candidate_matches, issues
+
         resolved, candidate_matches, gate_issues = self._apply_confidence_gating(entry, candidate_matches, entry_kind)
         issues.extend(gate_issues)
         return resolved, candidate_matches, issues
+
+    def _collect_source_errors(self, sources: List[str]) -> List[dict]:
+        errors = []
+        for src in sources:
+            client = self.clients.get(src)
+            error = getattr(client, "last_error", None)
+            if error:
+                errors.append(error)
+        return errors
+
+    def _source_unavailable_issue(self, issue_type: str, message: str, source_errors: List[dict]) -> Issue:
+        return {
+            "type": issue_type,
+            "severity": "WARNING",
+            "message": message,
+            "details": {"sources": source_errors},
+        }
 
     def _apply_confidence_gating(self, entry: Entry, candidates: List[dict], entry_kind: str) -> Tuple[Optional[dict], List[dict], List[Issue]]:
         issues: List[Issue] = []
@@ -232,7 +312,7 @@ class OnlineValidator:
                     {
                         "type": "NOT_FOUND_ONLINE",
                         "severity": severity,
-                        "message": "无法在线匹配到候选",
+                        "message": "No online candidate could be matched.",
                         "details": {},
                     }
                 )
@@ -256,7 +336,7 @@ class OnlineValidator:
                     {
                         "type": "CANDIDATE_FOUND_NO_DOI",
                         "severity": "WARNING",
-                        "message": f"找到高置信候选，建议补充 DOI {best.get('doi') or ''}".strip(),
+                        "message": f"High-confidence candidate found; consider adding DOI {best.get('doi') or ''}".strip(),
                         "details": best,
                     }
                 )
@@ -278,7 +358,7 @@ class OnlineValidator:
                 {
                     "type": "AMBIGUOUS_MATCH",
                     "severity": "WARNING",
-                    "message": "候选匹配置信度一般，需要人工核对",
+                    "message": "Candidate match has medium confidence and needs manual review.",
                     "details": {"candidates": top_candidates},
                 }
             )
@@ -286,9 +366,9 @@ class OnlineValidator:
 
         issues.append(
             {
-                "type": "LOW_CONFIDENCE_CANDIDATE",
-                "severity": "WARNING",
-                "message": "候选匹配置信度过低，建议人工核对",
+            "type": "LOW_CONFIDENCE_CANDIDATE",
+            "severity": "WARNING",
+            "message": "Candidate confidence is too low; manual review is recommended.",
                 "details": {"candidates": top_candidates},
             }
         )
@@ -302,7 +382,7 @@ class OnlineValidator:
                 {
                     "type": "TITLE_MISMATCH",
                     "severity": "ERROR",
-                    "message": f"标题相似度过低 {score}",
+                    "message": f"Title similarity is too low: {score}",
                     "details": {"online_title": resolved.get("title")},
                 }
             )
@@ -311,7 +391,7 @@ class OnlineValidator:
                 {
                     "type": "TITLE_MISMATCH",
                     "severity": "WARNING",
-                    "message": f"标题相似度一般 {score}",
+                    "message": f"Title similarity is moderate: {score}",
                     "details": {"online_title": resolved.get("title")},
                 }
             )
@@ -332,7 +412,7 @@ class OnlineValidator:
                 {
                     "type": "YEAR_MISMATCH",
                     "severity": sev,
-                    "message": f"年份不一致: 本地 {local_year} 在线 {online_year}",
+                    "message": f"Year mismatch: local {local_year}, online {online_year}",
                     "details": {},
                 }
             )
@@ -345,57 +425,93 @@ class OnlineValidator:
                     {
                         "type": "AUTHOR_MISMATCH",
                         "severity": "ERROR",
-                        "message": "作者不一致",
+                        "message": "Author list mismatch",
                         "details": {"online_authors": online_authors},
                     }
                 )
 
         local_venue = _clean_venue(normalize_venue(entry))
         online_venue = _clean_venue(resolved.get("venue") or "")
-        if local_venue and online_venue and local_venue not in online_venue and online_venue not in local_venue:
+        skip_arxiv_copy_venue = resolved.get("source") == "arxiv" and local_venue and "arxiv" not in local_venue
+        if local_venue and online_venue and not skip_arxiv_copy_venue and not _venue_match(local_venue, online_venue):
             issues.append(
                 {
                     "type": "VENUE_MISMATCH",
                     "severity": "WARNING",
-                    "message": f"venue 不一致: 本地 {local_venue} 在线 {online_venue}",
+                    "message": f"Venue mismatch: local {local_venue}, online {online_venue}",
                     "details": {},
                 }
             )
         return issues
 
 
+def _valid_doi_for_lookup(doi: str) -> bool:
+    return bool(doi and re.fullmatch(r"10\.\d{4,9}/\S+", doi))
+
+
 def _authors_match(local: List[str], online: List[str]) -> bool:
     if not local or not online:
         return True
+    local_has_wildcard = any(a.strip().lower().strip("{} ") in {"others", "other", "et al", "et al.", "etal"} for a in local)
     local_first = _surname(local[0])
     online_first = _surname(online[0])
     if local_first and online_first and local_first.lower() != online_first.lower():
         return False
-    if abs(len(local) - len(online)) > 3:
+    if not local_has_wildcard and abs(len(local) - len(online)) > 3:
         return False
     return True
 
 
 def _surname(author: str) -> str:
+    author = (author or "").replace("{", " ").replace("}", " ").strip()
     if "," in author:
-        # 形如 "He, Kaiming" -> 取逗号前部分的最后一个词
+        # For "He, Kaiming", use the final token before the comma as the surname.
         left = author.split(",")[0].strip()
         parts = left.split()
-        return parts[-1] if parts else left
+        return _clean_author_token(parts[-1] if parts else left)
     parts = author.replace(",", " ").split()
-    return parts[-1] if parts else author
+    return _clean_author_token(parts[-1] if parts else author)
+
+
+def _clean_author_token(value: str) -> str:
+    token = "".join(ch.lower() for ch in value if ch.isalnum())
+    if token in {"etal", "others", "other"}:
+        return ""
+    return token
 
 
 def _clean_venue(venue: str) -> str:
-    v = venue.lower()
-    # 去括号内容与年份
+    v = venue.lower().replace("{", " ").replace("}", " ")
+    # Remove parenthesized text and years.
     v = re.sub(r"\([^)]*\)", " ", v)
     v = re.sub(r"\b(19|20)\d{2}\b", " ", v)
-    # 去常见前缀
+    # Remove common venue prefixes.
     v = re.sub(r"\bproceedings of the\b", " ", v)
     v = re.sub(r"\bproc\.?\b", " ", v)
     v = re.sub(r"\bconference on\b", " ", v)
     v = re.sub(r"\bieee\b", " ", v)
     v = re.sub(r"\bacm\b", " ", v)
+    v = re.sub(r"[^a-z0-9]+", " ", v)
     v = re.sub(r"\s+", " ", v)
     return v.strip()
+
+
+def _venue_match(local: str, online: str) -> bool:
+    if local in online or online in local:
+        return True
+    local_aliases = _venue_aliases(local)
+    online_aliases = _venue_aliases(online)
+    return bool(local_aliases.intersection(online_aliases))
+
+
+def _venue_aliases(venue: str) -> set:
+    aliases = {venue}
+    if "icml" in venue or "international conference machine learning" in venue:
+        aliases.add("icml")
+    if "neurips" in venue or "nips" in venue or "neural information processing systems" in venue:
+        aliases.add("neurips")
+    if "royal statistical society series b" in venue:
+        aliases.add("jrssb")
+    if "compstat" in venue:
+        aliases.add("compstat")
+    return aliases

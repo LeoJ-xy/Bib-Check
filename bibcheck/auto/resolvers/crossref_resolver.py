@@ -1,5 +1,7 @@
 import requests
 
+from ...sources.common import normalize_whitespace, request_json
+
 
 def search_crossref(title: str, session: requests.Session, cache, user_agent: str):
     if not title:
@@ -8,19 +10,18 @@ def search_crossref(title: str, session: requests.Session, cache, user_agent: st
     cached = cache.get(ck)
     if cached:
         return cached
-    headers = {"User-Agent": user_agent}
     params = {"query.bibliographic": title, "rows": 1}
-    r = session.get("https://api.crossref.org/works", params=params, headers=headers, timeout=10)
-    if r.status_code != 200:
+    payload, error = request_json(session, "https://api.crossref.org/works", params=params, timeout=10)
+    if error or not payload:
         return None
-    items = r.json().get("message", {}).get("items", [])
+    items = payload.get("message", {}).get("items", [])
     if not items:
         return None
     item = items[0]
     data = {
         "source": "crossref",
         "doi": item.get("DOI"),
-        "title": " ".join(item.get("title") or []),
+        "title": normalize_whitespace(" ".join(item.get("title") or [])),
         "authors": [
             " ".join(filter(None, [a.get("given"), a.get("family")])).strip()
             for a in item.get("author", []) if a.get("given") or a.get("family")
@@ -31,4 +32,3 @@ def search_crossref(title: str, session: requests.Session, cache, user_agent: st
     }
     cache.set(ck, data)
     return data
-

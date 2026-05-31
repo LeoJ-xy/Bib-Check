@@ -32,6 +32,6 @@ def test_progressbar_outputs_with_eta(monkeypatch) -> None:
     progress.update(1)
     progress.finish()
     output = stream.getvalue()
-    assert "进度" in output
+    assert "Progress" in output
     assert "ETA" in output
     assert "\n" in output

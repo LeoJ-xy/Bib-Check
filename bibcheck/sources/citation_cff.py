@@ -1,17 +1,22 @@
-import time
 from typing import Dict, Optional
 
 import requests
 import yaml
 
+from .common import SourceClientMixin, normalize_whitespace, request_text
 
-class CitationCffClient:
+
+class CitationCffClient(SourceClientMixin):
+    source_name = "citation_cff"
+
     def __init__(self, session: requests.Session, cache, rate_limiter):
         self.session = session
         self.cache = cache
         self.rate_limiter = rate_limiter
+        self.last_error = None
 
     def fetch_by_repo(self, owner: str, repo: str) -> Dict[str, Optional[Dict]]:
+        self._clear_error()
         cache_key = f"citationcff:{owner}/{repo}"
         cached = self.cache.get(cache_key)
         if cached is not None:
@@ -29,6 +34,8 @@ class CitationCffClient:
                 result = {"status": "found", "candidate": parsed}
                 break
 
+        if self.last_error:
+            return result
         self.cache.set(cache_key, result)
         return result
 
@@ -39,7 +46,7 @@ class CitationCffClient:
             return None
         if not isinstance(payload, dict):
             return None
-        title = payload.get("title") or payload.get("message")
+        title = normalize_whitespace(payload.get("title") or payload.get("message") or "")
         if not title:
             return None
         authors = []
@@ -64,19 +71,8 @@ class CitationCffClient:
         }
 
     def _request(self, url: str) -> Optional[str]:
-        backoff = 0.5
-        for _ in range(3):
-            try:
-                resp = self.session.get(url, timeout=10)
-                if resp.status_code == 404:
-                    return None
-                if resp.status_code >= 500:
-                    time.sleep(backoff)
-                    backoff *= 2
-                    continue
-                resp.raise_for_status()
-                return resp.text
-            except requests.RequestException:
-                time.sleep(backoff)
-                backoff *= 2
-        return None
+        data, error = request_text(self.session, url, timeout=10)
+        if error:
+            details = {k: v for k, v in error.items() if k != "message"}
+            self._record_error(str(error.get("message", "request failed")), **details)
+        return data
